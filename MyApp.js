@@ -16,166 +16,142 @@ var connection = mysql.createConnection({
 	database: 'Courses'
 });
 
-var userId = 102;
-
 connection.connect(function (error) {
 	if (error) throw error;
 })
 
-app.get("/api/syllabus/", function (request, response) {
-	connection.query(`select syllabusID, title, description, objectives from Syllabuses where userId = ${userId} and status = 1`, function (error, result) {
-		if (error) throw error;
-		response.status(200).send(result);
+app.get('/api/syllabus/', function (request, response) {
+	getUserId(request, response, function (userId) {
+		const selectQuery = `select syllabusID, title, description, objectives from Syllabuses where userId = ? and status = 1`;
+		const values = [userId];
+		connection.query(mysql.format(selectQuery, values), function (error, result) {
+			if (error) throw error
+			if (result.length != 0) {
+				response.status(200).send(result)
+			}
+			else {
+				response.status(404).send({"Warning": "No data found."});
+			}
+		})
 	})
 })
 
 app.post("/api/syllabus/", function (request, response) {
-	const errorResponse = {};
-	const values = [request.body.syllabusID, request.body.title, request.body.description, request.body.objectives];
-	if(values[0] == undefined || values[1] == undefined || values[2] == undefined || values[3] == undefined)
-	{
-		response.status(400);
-		if(values[0] == undefined)
+	getUserId(request, response, function(userId){
+		const errorResponse = {};
+		const values = [request.body.title, request.body.description, request.body.objectives, userId];
+		console.log(values);
+		if(values[0] == undefined || values[1] == undefined || values[2] == undefined)
 		{
-			errorResponse["syllabusID"] = "Please enter syllabus Id.";
-		}
-		if(values[1] == undefined)
-		{
-			errorResponse["title"] = "Please enter title.";
-		}
-		if(values[2] == undefined)
-		{
-			errorResponse["description"] = "Please enter description.";
-		}
-		if(values[3] == undefined)
-		{
-			errorResponse["objectives"] = "Please enter objectives.";
-		}
-		response.send(errorResponse);
-		response.end();
-	}
-	else
-	{
-		const searchQuery = "select syllabusID from Syllabuses where SyllabusId = ?";
-		const syllabusID = [request.body.syllabusID]
-		connection.query(mysql.format(searchQuery, syllabusID), function(error, result){
-			if(error) throw error;
-			if(result.length == 0)
+			if(values[0] == undefined)
 			{
-				const sqlQuery = `insert into Syllabuses(syllabusID, title, description, objectives, status, userId) values(?, ?, ?, ?, 1, ${userId})`;
-				connection.query(mysql.format(sqlQuery, values), function (error, result) {
+				errorResponse["title"] = "Please enter title.";
+			}
+			if(values[1] == undefined)
+			{
+				errorResponse["description"] = "Please enter description.";
+			}
+			if(values[2] == undefined)
+			{
+				errorResponse["objectives"] = "Please enter objectives.";
+			}
+			response.status(400).send(errorResponse);
+		}
+		else
+		{
+			const sqlQuery = `insert into Syllabuses(title, description, objectives, status, userId) values(?, ?, ?, 1, ?)`;
+			connection.query(mysql.format(sqlQuery, values), function (error, result) {
+				if (error) throw error;
+				response.status(201);
+				connection.query(`select syllabusID, title, description, objectives from Syllabuses where syllabusID = ${result["insertId"]}`, function (error, result) {
 					if (error) throw error;
-					response.status(201);
-					connection.query(`select syllabusID, title, description, objectives from Syllabuses where syllabusID = ${result["insertId"]}`, function (error, result) {
-						if (error) throw error;
-						response.json(result);
-					})
+					response.json(result);
 				});
-			}
-			else
-			{
-				response.status(400);
-				response.send({"Warning":"Syllabus Id already existed."});
-			}
-		});
-	}
-});
-
-app.put('/api/syllabus/:id', function (request, response) {
-	const id = request.params.id;
-	const searchQuery = `select syllabusID from Syllabuses where syllabusID = ? and status = 1`;
-	console.log(mysql.format(searchQuery, id));
-	connection.query(mysql.format(searchQuery, id), function (error, result) {
-		if (error) throw error;
-		if (result.length != 0) 
-		{
-			const searchQueryWithUserId = `select syllabusID from Syllabuses where syllabusID = ? and status = 1 and userId = ${userId}`;
-			connection.query(mysql.format(searchQueryWithUserId, id), function(error, result){
-				if(error) throw error;
-				if(result.length != 0)
-				{
-					const sqlQuery = `update Syllabuses set title = ?, description = ?, objectives = ? where syllabusID = ${id}`;
-					const values = [request.body.title, request.body.description, request.body.objectives];
-					connection.query(mysql.format(sqlQuery, values), function (error, result) {
-						if (error) throw error;
-						response.status(200);
-						const selectQuery = `select syllabusID, title, description, objectives from Syllabuses where syllabusID = ?`;
-						connection.query(mysql.format(selectQuery, id), function(error, result){
-							if(error) throw error;
-							response.send(result);
-						});
-					});
-				}
-				else
-				{
-					response.status(403).send(result);
-				}
 			});
-		}
-		else {
-			response.status(404).send(result);
 		}
 	});
 });
 
+app.put('/api/syllabus/:id', function (request, response) {
+	getUserId(request, response, function(userId){
+		const syllabusId = request.params.id;
+		const values = [request.body.title, request.body.description, request.body.objectives, syllabusId, userId];
+		const searchQuery = `select syllabusID from Syllabuses where syllabusID = ? and status = 1`;
+		connection.query(mysql.format(searchQuery, syllabusId), function (error, result) {
+			if (error) throw error;
+			if (result.length != 0) 
+			{
+				const sqlQuery = `update Syllabuses set title = ?, description = ?, objectives = ? where syllabusID = ? and userId = ?`;
+				connection.query(mysql.format(sqlQuery, values), function (error, result) {
+					if (error) throw error;
+					if(result["affectedRows"] != 0)
+					{
+						response.status(200);
+						const selectQuery = `select syllabusID, title, description, objectives from Syllabuses where syllabusID = ?`;
+						connection.query(mysql.format(selectQuery, syllabusId), function(error, result){
+							if(error) throw error;
+							response.send(result);
+						});
+					}
+					else
+					{
+						response.status(403).send({"Warning": "You have no access."});
+					}
+				});
+			}
+			else 
+			{
+				response.status(404).send({"Warning":`No syllabus found with ${syllabusId} syllabus id.`});
+			}
+		});
+	})
+});
+
 app.delete("/api/syllabus/:id", function (request, response) {
-	const id = request.params.id;
-	const searchQuery = `select syllabusID from Syllabuses where syllabusID = ?`;
-	connection.query(mysql.format(searchQuery, id), function (error, result) {
-		if (error) throw error;
-		if (result.length != 0) 
-		{
-			const searchQueryWithUserId = `select syllabusID from Syllabuses where syllabusID = ? and status = 1 and userId = ${userId}`;
-			connection.query(mysql.format(searchQueryWithUserId, id), function (error, result) {
-				if (error) throw error;
-				if (result.length != 0) 
-				{
-					const updateQuery = `update Syllabuses set status = 0 where syllabusID = ?`;
-					connection.query(mysql.format(updateQuery, id), function (error, result) {
-						if (error) throw error
-						response.status(200).send("204 NO CONTENT")
-					})
-				}
-				else 
-				{
-					response.status(403).send(result)
-				}
-			})
-		}
-		else
-		{
-			response.status(404).send(result)
-		}
+	getUserId(request, response, function(userId){
+		const syllabusId = request.params.id;
+		const searchQuery = `select syllabusID from Syllabuses where syllabusID = ? and status = 1`;
+		connection.query(mysql.format(searchQuery, syllabusId), function (error, result) {
+			if (error) throw error;
+			if (result.length != 0) {
+				const updateQuery = `update Syllabuses set status = 0 where syllabusID = ? and userId = ?`;
+				values = [syllabusId, userId];
+				connection.query(mysql.format(updateQuery, values), function (error, result) {
+					if (error) throw error
+					if(result["affectedRows"] != 0)
+					{
+						response.status(200).send({"Message": "Updated successfully"});
+					}
+					else
+					{
+						response.status(403).send({"warning": "You have no access."});
+					}
+				})
+			}
+			else
+			{
+				response.status(404).send({"Warning":`No syllabus found with ${syllabusId} syllabus id.`});
+			}
+		})
 	})
 })
 
 app.get('/api/syllabus/:id', function (request, response) {
-	const id = request.params.id;
-	const searchQuery = `select syllabusID from Syllabuses where syllabusID = ?`
-	connection.query(mysql.format(searchQuery, id), function (error, result) {
-		if (error) throw error
-		if (result.length != 0) 
-		{
-			
-			const searchQueryWithUserId = `select syllabusID from Syllabuses where syllabusID = ? and status = 1 and userId = ${userId}`;
-			connection.query(mysql.format(searchQueryWithUserId, id), function (error, result) {
-				if (error) throw error
-				if (result.length != 0) {
-					const selectQuery = `select syllabusID, title, description, objectives from Syllabuses where syllabusID = ?`;
-					connection.query(mysql.format(selectQuery, id), function(error, result){
-						if (error) throw error
-						response.status(200).send(result)
-					})
-				}
-				else {
-					response.status(403).json({"detail":"You do not have permission to perform this action."})
-				}
-			})
-		}
-		else
-		{
-			response.status(404).send(result)
-		}
+	getUserId(request, response, function(userId){
+		const syllabusId = request.params.id;
+		const selectQuery = `select syllabusID, title, description, objectives from Syllabuses where syllabusID = ? and userId = ? and status = 1`;
+		const values = [syllabusId, userId];
+		connection.query(mysql.format(selectQuery, values), function(error, result){
+			if (error) throw error
+			if(result.length != 0)
+			{
+				response.status(200).send(result);
+			}
+			else
+			{
+				response.status(404).send({"Warning":`No syllabus found with ${syllabusId} syllabus id.`});
+			}
+		})
 	})
 })
 
@@ -185,14 +161,13 @@ app.post('/api/syllabus/signUp', function (request, response) {
 	const signupErrors = {};
 	console.log([userName, password]);
 	if (userName == undefined || password == undefined) {
-		response.status(400);
 		if (userName == undefined) {
 			signupErrors["Email/User Name"] = "Please enter user name or email.";
 		}
 		if (password == undefined) {
 			signupErrors["password"] = "Please enter password.";
 		}
-		response.send(signupErrors);
+		response.status(400).send(signupErrors);
 	}
 	else {
 		if (emailValidator.validate(userName)) {
@@ -209,20 +184,18 @@ app.post('/api/syllabus/signUp', function (request, response) {
 				connection.query(mysql.format(sqlQuery, values), function (error, result) {
 					if (error) throw error;
 					console.log(result);
-					response.status(201).send("Your user id is " + result["insertId"]);
+					response.status(201).send({"user id": result["insertId"]});
 				});
 			}
 			else {
-				response.status(400);
 				const conditions = `please enter valid password. password should contain aleast six(6) characters, one special character, No white spaces.`;
 				signupErrors["password"] = conditions;
-				response.send(signupErrors);
+				response.status(400).send(signupErrors);
 			}
 		}
 		else {
-			response.status(400);
 			signupErrors["Email/user Name"] = "Please enter valid Email";
-			response.send(signupErrors);
+			response.status(400).send(signupErrors);
 		}
 	}
 });
@@ -233,31 +206,65 @@ app.post('/api/syllabus/signIn', function (request, response) {
 	const signInErrors = {};
 	console.log([userName, password]);
 	if (userName == undefined || password == undefined) {
-		response.status(400);
 		if (userName == undefined) {
 			signInErrors["Email/User Name"] = "Please enter user name or email.";
 		}
 		if (password == undefined) {
 			signInErrors["password"] = "Please enter password.";
 		}
-		response.send(signInErrors);
+		response.status(400).send(signInErrors);
 	}
-	else {
-		const sqlQuery = "select userId, token from Users where userName = ? and password = ?";
-		const values = [userName, password];
-		connection.query(mysql.format(sqlQuery, values), function (error, result) {
+	else 
+	{
+		const searchQuery = "select userId from Users where userName = ?";
+		connection.query(mysql.format(searchQuery, userName), function (error, result) {
 			if (error) throw error;
-			if (result.length == 0) {
-				response.status(404);
+			if (result.length != 0) {
+				const sqlQuery = "select token from Users where userName = ? and password = ?";
+				const values = [userName, password];
+				connection.query(mysql.format(sqlQuery, values), function (error, result) {
+					if (error) throw error;
+					if (result.length == 0) {
+						response.status(404).send({"warning":"Invalid Password"});
+
+					}
+					else {
+						response.status(200).send(result);
+					}
+				})
 			}
 			else {
-				response.status(200);
-				response.send(result);
+				response.status(404).send({"warning": "Invalid E-Mail/Password"});
 			}
 		})
 	}
 })
 
+function getUserId(request, response, callback)
+{
+	const token = request.headers.authorization;
+	if(token == null || token == undefined)
+	{
+		response.status(401).send({"Warning": "Unautherised User"});
+	}
+	else
+	{
+		const sqlQuery = "select userId from Users where token = ?";
+		connection.query(mysql.format(sqlQuery, token), function(error, result) {
+			if(error) throw error;
+			if(result.length == 0)
+			{
+				response.status(404).send({"Warning": `No user found.`});
+			}
+			else
+			{
+				const userId = result[0]["userId"];
+				callback(userId);
+			}
+		}) ;
+	}
+}
+	
 app.listen(port, function () {
-	console.log(`http://localhost:${port}`)
+console.log(`App listening http://localhost:${port}`)
 })
