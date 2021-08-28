@@ -143,7 +143,7 @@ app.post('/api/syllabus/signIn', function (request, response) {
 			}
 			else 
 			{
-				response.status(404).send({ "warning": "Invalid E-Mail/Password" });
+				response.status(404).send({ "warning": "No user found." });
 			}
 		})
 	}
@@ -264,12 +264,23 @@ app.get('/api/syllabus/:id', function (request, response) {
 })
 
 function searchSyllabusItem(userId, syllabusId, response, callback) {
-	const searchQuery = "select syllabusID from Syllabuses where syllabusID = ? and status = 1 and userId = ?";
-	connection.query(mysql.format(searchQuery, [syllabusId, userId]), function (error, result) {
+	const searchQuery = "select syllabusID from Syllabuses where syllabusID = ? and status = 1";
+	connection.query(mysql.format(searchQuery, [syllabusId]), function (error, result) {
 		if (error) throw error;
 		if (result.length != 0) 
 		{
-			callback();
+			const sqlQuery = "Select syllabusID from Syllabuses where syllabusID = ? and userId = ?";
+			connection.query(mysql.format(sqlQuery, [syllabusId, userId]), function(error, result){
+				if(error) throw error;
+				if(result.length == 0)
+				{
+					response.status(403).send({"Warning": "You have no access."});
+				}
+				else
+				{
+					callback();
+				}
+			})
 		}
 		else
 		{
