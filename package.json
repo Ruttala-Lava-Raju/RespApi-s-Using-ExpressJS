@@ -1,11 +1,12 @@
 {
   "dependencies": {
-    "body-parser": "^1.19.0",
     "email-validator": "^2.0.4",
     "express": "^4.17.1",
-    "express-validator": "^6.12.1",
+    "install": "^0.13.0",
     "mysql": "^2.18.1",
+    "mysql2": "^2.3.0",
     "password-validator": "^5.1.1",
-    "uuidv4": "^6.2.12"
+    "promise-mysql2": "^1.0.0",
+    "uuid": "^8.3.2"
   }
 }

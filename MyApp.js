@@ -1,5 +1,5 @@
 const express = require('express');
-const mysql = require('mysql');
+const mysql = require('mysql2');
 var emailValidator = require('email-validator');
 var passwordValidator = require('password-validator');
 const { v4: uuidv4 } = require('uuid');
@@ -7,67 +7,74 @@ const app = express();
 const port = 8002;
 
 var connection = mysql.createConnection({
-	host: '165.22.14.77',
-	user: 'b27',
-	password: 'b27',
-	database: 'Courses'
+	host: process.env.HOST_NAME,
+	user: process.env.USER_NAME,
+	password: process.env.PASSWORD,
+	database: process.env.DATABASE_NAME
 });
-
-connection.connect(function (error) {
-	if (error) throw error;
-})
 
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-function validateTokenMiddeleware(request, response, next) {
+let validateTokenMiddeleware = (request, response, next) => {
 	const token = request.headers.authorization;
-	if (token == null || token == undefined) 
+	const path = request.path;
+	const excludingPathsForAuthentication = {"signIn": "/api/syllabus/signIn", "signUp": "/api/syllabus/signUp"};
+	if(path == excludingPathsForAuthentication.signIn || path == excludingPathsForAuthentication.signUp)
 	{
-		response.status(401).send({ "Warning": "Unauthorized user." });
-	}
-	else 
-	{
-		request["token"] = token;
 		next();
 	}
-}
-
-function validateUserUsingTokenInDatabase(request, response, next) {
-	const sqlQuery = "select userId from Users where token = ?";
-	const value = [request.token];
-	connection.query(mysql.format(sqlQuery, value), function (error, result) {
-		if (error) throw error;
-		if (result.length == 0) 
+	else
+	{
+		if (token == null || token == undefined) 
 		{
-			response.status(401).send({ "Warning": "Unauthorized user." });
+			response.status(401).send({ "Message": "Unauthorized user." });
 		}
 		else 
 		{
-			request["userId"] = result[0]["userId"];
+			request["token"] = token;
 			next();
 		}
-	})
+	}
 }
 
-app.post('/api/syllabus/signUp', function (request, response) {
+let  validateUserUsingTokenInDatabase = (request, response, next) => {
+	const sqlQuery = "select userId from Users where token = ?";
+	const value = [request.token];
+	if(value[0] == undefined)
+	{
+		next();
+	}
+	else
+	{
+		connection.promise().execute(sqlQuery, value)
+		.then((rows) => {
+			const result = rows[0];
+			if (result.length == 0) 
+			{
+				response.status(401).send({ "Message": "Unauthorized user." });
+			}
+			else 
+			{
+				request["userId"] = result[0]["userId"];
+				next();
+			}
+		})
+		.catch((error) => {
+			console.log(error);
+			response.status(500).send({"Message": "Internal server error."});
+		})
+	}
+}
+
+app.use(validateTokenMiddeleware);
+app.use(validateUserUsingTokenInDatabase);
+
+app.post('/api/syllabus/signUp', (request, response) => {
 	const userName = request.body.userName;
 	const password = request.body.password;
 	const signupErrors = {};
-	console.log([userName, password]);
-	if (userName == undefined || password == undefined) 
-	{
-		if (userName == undefined) 
-		{
-			signupErrors["Email/User Name"] = "Please enter user name or email.";
-		}
-		if (password == undefined) 
-		{
-			signupErrors["password"] = "Please enter password.";
-		}
-		response.status(400).send(signupErrors);
-	}
-	else {
+	ValidateuserCredentials(userName, password, response, () => {
 		if (emailValidator.validate(userName)) 
 		{
 			let schema = new passwordValidator;
@@ -81,10 +88,11 @@ app.post('/api/syllabus/signUp', function (request, response) {
 				const token = uuidv4();
 				const sqlQuery = "insert into Users values(default, ?, ?, ?)";
 				const values = [userName, password, token];
-				connection.query(mysql.format(sqlQuery, values), function (error, result) {
-					if (error) throw error;
-					console.log(result);
-					response.status(201).send({ "user id": result["insertId"] });
+				connection.promise().execute(sqlQuery, values)
+				.then((rows) => {
+					const result = rows[0];
+					const userId = result.insertId;
+					response.status(201).send({ "user id": userId });
 				});
 			}
 			else 
@@ -99,81 +107,71 @@ app.post('/api/syllabus/signUp', function (request, response) {
 			signupErrors["Email/user Name"] = "Please enter valid Email";
 			response.status(400).send(signupErrors);
 		}
-	}
+	})
 });
 
-app.post('/api/syllabus/signIn', function (request, response) {
+app.post('/api/syllabus/signIn', (request, response) => {
 	const userName = request.body.userName;
 	const password = request.body.password;
-	const signInErrors = {};
-	console.log([userName, password]);
-	if (userName == undefined || password == undefined) 
-	{
-		if (userName == undefined) 
-		{
-			signInErrors["Email/User Name"] = "Please enter user name or email.";
-		}
-		if (password == undefined) 
-		{
-			signInErrors["password"] = "Please enter password.";
-		}
-		response.status(400).send(signInErrors);
-	}
-	else 
-	{
+	ValidateuserCredentials(userName, password, response, () => {
 		const searchQuery = "select userId from Users where userName = ?";
-		connection.query(mysql.format(searchQuery, userName), function (error, result) {
-			if (error) throw error;
+		connection.promise().execute(searchQuery, [userName])
+		.then((rows) => {
+			const result = rows[0];
 			if (result.length != 0) 
 			{
 				const sqlQuery = "select token from Users where userName = ? and password = ?";
 				const values = [userName, password];
-				connection.query(mysql.format(sqlQuery, values), function (error, result) {
-					if (error) throw error;
+				connection.promise().execute(sqlQuery, values)
+				.then((rows) => {
+					const result = rows[0];
 					if (result.length == 0) 
 					{
 						response.status(404).send({ "warning": "Invalid Password" });
-						
 					}
 					else 
 					{
 						response.status(200).send(result);
 					}
-				})
+				});
 			}
 			else 
 			{
 				response.status(404).send({ "warning": "No user found." });
 			}
 		})
-	}
+		.catch((error) => {
+			console.log(error);
+			response.status(500).send({"Message": "Internal server error."});
+		})
+	})
 })
 
-app.use(validateTokenMiddeleware);
-app.use(validateUserUsingTokenInDatabase);
-
-app.get('/api/syllabus/', function (request, response) {
+app.get('/api/syllabus/', (request, response) => {
 	const selectQuery = `select syllabusID, title, description, objectives from Syllabuses where userId = ? and status = 1`;
 	const values = [request.userId];
-	console.log(values);
-	connection.query(mysql.format(selectQuery, values), function (error, result) {
-		if (error) throw error
+	connection.promise().execute(selectQuery, values)
+	.then((rows) => {
+		const result = rows[0];
 		if (result.length != 0) 
 		{
 			response.status(200).send(result)
 		}
 		else 
 		{
-			response.status(200).send({ "Warning": "No data found." });
+			response.status(200).send({ "Message": "No data found." });
 		}
+	})
+	.catch((error) => {
+		console.log(error);
+		response.status(500).send({"Message": "Internal server error."})	
 	})
 })
 
-app.post("/api/syllabus/", function (request, response) {
+app.post("/api/syllabus/", (request, response) => {
 	const errorResponse = {};
 	const userId = request.userId;
 	const values = [request.body.title, request.body.description, request.body.objectives, userId];
-	console.log(values);
 	if(values[0] == undefined || values[1] == undefined || values[2] == undefined)
 	{
 		if(values[0] == undefined)
@@ -193,102 +191,140 @@ app.post("/api/syllabus/", function (request, response) {
 	else
 	{
 		const sqlQuery = `insert into Syllabuses(title, description, objectives, status, userId) values(?, ?, ?, 1, ?)`;
-		connection.query(mysql.format(sqlQuery, values), function (error, result) {
-			if (error) throw error;
+		connection.promise().execute(sqlQuery, values)
+		.then((rows) => {
+			result = rows[0];
 			response.status(201);
-			connection.query(`select syllabusID, title, description, objectives from Syllabuses where syllabusID = ${result["insertId"]}`, function (error, result) {
-				if (error) throw error;
+			connection.promise().query(`select syllabusID, title, description, objectives from Syllabuses where syllabusID = ${result["insertId"]}`)
+			.then((rows) => {
+				const result = rows[0];
 				response.json(result);
 			});
-		});
+		})
+		.catch((error) => {
+			console.log(error);
+			response.status(500).send({"Message": "Internal server error."})
+		})
 	}
 });
 
-app.put('/api/syllabus/:id', function (request, response) {
+app.put('/api/syllabus/:id', (request, response) => {
 	const userId = request.userId;
 	const syllabusId = request.params.id;
 	const values = [request.body.title, request.body.description, request.body.objectives, syllabusId];
-	searchSyllabusItem(userId, syllabusId, response, function(){
+	searchSyllabusItem(userId, syllabusId, response, () => {
 		const sqlQuery = `update Syllabuses set title = ?, description = ?, objectives = ? where syllabusID = ?`;
-		connection.query(mysql.format(sqlQuery, values), function (error, result) {
-			if (error) throw error;
-			if(result["affectedRows"] != 0)
+		connection.promise().execute(sqlQuery, values)
+		.then((rows) => {
+			const result = rows[0];
+			const affectedRows = result["affectedRows"];
+			if(affectedRows != 0)
 			{
 				response.status(200);
 				const selectQuery = `select syllabusID, title, description, objectives from Syllabuses where syllabusID = ?`;
-				connection.query(mysql.format(selectQuery, syllabusId), function(error, result){
-					if(error) throw error;
+				connection.promise().execute(selectQuery, [syllabusId])
+				.then((rows) => {
+					const result = rows[0];
 					response.send(result);
 				});
 			}
-			else
-			{
-				response.status(500).send({"Warning": "Internal server error."});
-			}
-		});
+		})
+		.catch((error) => {
+			console.log(error);
+			response.status(500).send({"message": "Internal server error."});
+		})
 	})
 });
 
-app.delete("/api/syllabus/:id", function (request, response) {
+app.delete("/api/syllabus/:id", (request, response) => {
 	const userId = request.userId;
 	const syllabusId = request.params.id;
-	searchSyllabusItem(userId, syllabusId, response, function(){
+	searchSyllabusItem(userId, syllabusId, response, () => {
 		const updateQuery = `update Syllabuses set status = 0 where syllabusID = ?`;
-		connection.query(mysql.format(updateQuery, syllabusId), function (error, result) {
-			if (error) throw error
-			if(result["affectedRows"] != 0)
+		connection.promise().execute(updateQuery, [syllabusId])
+		.then((rows) => {
+			const result = rows[0];
+			const affectedRows = result["affectedRows"];
+			if(affectedRows != 0)
 			{
-				response.status(200).send({"Message": "Updated successfully"});
+				response.status(200).send({"Message": "Deleted successfully"});
 			}
-			else
-			{
-				response.status(500).send({"warning": "Internal server error."});
-			}
-		});
+		})
+		.catch((error) => {
+			console.log(error);
+			response.status(500).send({"Message": "Internal server error."});
+		})
 	});
 })
 
-app.get('/api/syllabus/:id', function (request, response) {
+app.get('/api/syllabus/:id', (request, response) => {
 	const userId = request.userId;
 	const syllabusId = request.params.id;
-	searchSyllabusItem(userId, syllabusId, response, function () {
+	searchSyllabusItem(userId, syllabusId, response, () => {
 		const selectQuery = `select syllabusID, title, description, objectives from Syllabuses where syllabusID = ?`;
-		connection.query(mysql.format(selectQuery, syllabusId), function (error, result) {
-			if (error) throw error
+		connection.promise().execute(selectQuery, [syllabusId])
+		.then((rows) => {
+			const result = rows[0];
 			if (result.length != 0) 
 			{
 				response.status(200).send(result);
 			}
-		});
+		})
+		.catch((error) => {
+			console.log(error);
+			response.status(500).send({"message": "Internal server error."});
+		})
 	});
 })
 
-function searchSyllabusItem(userId, syllabusId, response, callback) {
-	const searchQuery = "select syllabusID from Syllabuses where syllabusID = ? and status = 1";
-	connection.query(mysql.format(searchQuery, [syllabusId]), function (error, result) {
-		if (error) throw error;
+let searchSyllabusItem = (userId, syllabusId, response, callback) => {
+	const searchQuery = "select userId from Syllabuses where syllabusID = ? and status = 1";
+	connection.promise().execute(searchQuery, [syllabusId])
+	.then((rows) => {
+		const result = rows[0];
 		if (result.length != 0) 
 		{
-			const sqlQuery = "Select syllabusID from Syllabuses where syllabusID = ? and userId = ?";
-			connection.query(mysql.format(sqlQuery, [syllabusId, userId]), function(error, result){
-				if(error) throw error;
-				if(result.length == 0)
-				{
-					response.status(403).send({"Warning": "You have no access."});
-				}
-				else
-				{
-					callback();
-				}
-			})
+			const resultUserId = result[0]["userId"];
+			if(resultUserId != userId)
+			{
+				response.status(403).send({"Message": "You have no access."});
+			}
+			else
+			{
+				callback();
+			}
 		}
 		else
 		{
-			response.status(404).send({ "Warning": "Syllabus not found." })
+			response.status(404).send({ "Message": "Syllabus not found." })
 		}
+	})
+	.catch((error) => {
+		console.log(error);
+		response.status(500).send({"Message": "Internal server error."})
 	})
 }
 
-app.listen(port, function () {
+let ValidateuserCredentials = (userName, password, response, callback) =>
+{
+	let validationErrors = {};
+	if (userName == undefined || password == undefined) 
+	{
+		if (userName == undefined) 
+		{
+			validationErrors["Email/User Name"] = "Please enter user name or email.";
+		}
+		if (password == undefined) 
+		{
+			validationErrors["password"] = "Please enter password.";
+		}
+		response.status(400).send(validationErrors);
+	}
+	else
+	{
+		callback();
+	}	
+}
+app.listen(port, () => {
 console.log(`App listening http://localhost:${port}`)
 })
